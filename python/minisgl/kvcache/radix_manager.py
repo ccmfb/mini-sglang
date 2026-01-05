@@ -4,6 +4,7 @@ import heapq
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
+import random
 
 import torch
 
@@ -25,6 +26,9 @@ class RadixTreeNode:
         self._key: torch.Tensor
         self._value: torch.Tensor
         self._length: int
+
+        # Steps-to-execution value logic
+        self.steps_to_execution = random.randint(1,100)
 
     def set_key_value(self, key: torch.Tensor, value: torch.Tensor) -> None:
         assert len(key) == len(value)
@@ -76,7 +80,8 @@ class RadixTreeNode:
         return new_node
 
     def __lt__(self, other: RadixTreeNode) -> bool:
-        return self.timestamp < other.timestamp
+        return self.steps_to_execution > other.steps_to_execution
+        #return self.timestamp < other.timestamp
 
 
 @dataclass(frozen=True)
@@ -180,6 +185,8 @@ class RadixCacheManager(BaseCacheManager):
                 leave_nodes
             ), f"Cannot evict enough cache, need {size}, only {evicted_size} evicted"
             node = heapq.heappop(leave_nodes)
+            print(f'Evicting node with steps-to-execution value of {node.steps_to_execution}')
+
             assert node.ref_count == 0 and node.is_leaf() and not node.is_root()
             evicted_size += node.length
             evicted_indices.append(node.value)
