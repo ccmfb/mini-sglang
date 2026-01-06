@@ -12,6 +12,33 @@ from minisgl.core import KVFlowMetadata
 from .base import BaseCacheHandle, BaseCacheManager, SizeInfo
 
 
+def print_tree(node, prefix="", is_last=True):
+    """
+    Recursively prints the Radix Tree structure in ASCII format.
+    """
+    connector = "└── " if is_last else "├── "
+    
+    if node.is_root():
+        display = "[ROOT]"
+    else:
+        key = node._key.tolist()
+        # Truncate long keys for cleaner output
+        key_str = str(key) if len(key) <= 5 else f"{key[:2]}...{key[-1]}"
+        #status = "LOCKED" if node.ref_count > 0 else "Evictable"
+        display = f"Key: {key_str} | {node.steps_to_execution}"
+
+    print(f"{prefix}{connector}{display}")
+
+    # 3. Prepare prefix for the next level
+    child_prefix = prefix + ("    " if is_last else "│   ")
+    
+    sorted_children = sorted(node.children.items())
+    count = len(sorted_children)
+    
+    for i, (token_id, child_node) in enumerate(sorted_children):
+        print_tree(child_node, child_prefix, is_last=(i == count - 1))
+
+
 class RadixTreeNode:
     counter: int = 0
 
@@ -29,7 +56,7 @@ class RadixTreeNode:
         self._length: int
 
         # Steps-to-execution value logic
-        self.steps_to_execution = random.randint(1,100)
+        self.steps_to_execution = float('inf')
 
     def set_key_value(self, key: torch.Tensor, value: torch.Tensor) -> None:
         assert len(key) == len(value)
@@ -40,6 +67,9 @@ class RadixTreeNode:
     def set_parent(self, parent: RadixTreeNode) -> None:
         self._parent = parent
         parent.children[int(self._key[0].item())] = self
+
+    def set_steps_to_execution(self, steps_to_execution):
+        self.steps_to_execution = steps_to_execution
 
     @property
     def length(self) -> int:
@@ -73,6 +103,7 @@ class RadixTreeNode:
         new_node = RadixTreeNode(self.timestamp)
         new_node.set_key_value(self._key[:pos], self._value[:pos])
         new_node.set_parent(parent)
+        new_node.set_steps_to_execution(self.steps_to_execution)
         new_node.ref_count = self.ref_count
 
         self.set_key_value(self._key[pos:], self._value[pos:])
@@ -99,6 +130,8 @@ class RadixCacheManager(BaseCacheManager):
         self.root_node.ref_count = 1  # root is always protected
         self.evictable_size = 0
         self.protected_size = 0
+
+        self.display_tree = True
 
     def lock_handle(self, handle: BaseCacheHandle, unlock: bool = False) -> None:
         assert isinstance(handle, RadixCacheHandle)
@@ -141,7 +174,12 @@ class RadixCacheManager(BaseCacheManager):
             new_node = RadixTreeNode()
             new_node.set_key_value(input_ids[prefix_len:], indices[prefix_len:])
             new_node.set_parent(node)
+            new_node.set_steps_to_execution(kvflow_metadata.steps_to_execution)
             self.evictable_size += new_node.length
+
+            if self.display_tree:
+                print_tree(self.root_node)
+                print('------------------------------------------------')
         return prefix_len
 
     def _walk(self, input_ids: torch.Tensor) -> Tuple[RadixTreeNode, int]:
