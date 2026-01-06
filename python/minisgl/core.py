@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class KVFlowMetadata:
-    agent_id: int
-    steps_to_execution: int
+    agent_id: str
+    steps_to_execution_map: dict[str, int]
 
 
 @dataclass

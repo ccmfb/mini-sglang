@@ -25,7 +25,7 @@ def print_tree(node, prefix="", is_last=True):
         # Truncate long keys for cleaner output
         key_str = str(key) if len(key) <= 5 else f"{key[:2]}...{key[-1]}"
         #status = "LOCKED" if node.ref_count > 0 else "Evictable"
-        display = f"Key: {key_str} | {node.steps_to_execution}"
+        display = f"Key: {key_str} | {node.agent_id}: {node.steps_to_execution}"
 
     print(f"{prefix}{connector}{display}")
 
@@ -56,7 +56,8 @@ class RadixTreeNode:
         self._length: int
 
         # Steps-to-execution value logic
-        self.steps_to_execution = float('inf')
+        self.agent_id: str | None = None
+        self.steps_to_execution: int | None = None
 
     def set_key_value(self, key: torch.Tensor, value: torch.Tensor) -> None:
         assert len(key) == len(value)
@@ -68,7 +69,10 @@ class RadixTreeNode:
         self._parent = parent
         parent.children[int(self._key[0].item())] = self
 
-    def set_steps_to_execution(self, steps_to_execution):
+    def set_agent_id(self, agent_id: str) -> None:
+        self.agent_id = agent_id
+
+    def set_steps_to_execution(self, steps_to_execution: int) -> None:
         self.steps_to_execution = steps_to_execution
 
     @property
@@ -103,7 +107,10 @@ class RadixTreeNode:
         new_node = RadixTreeNode(self.timestamp)
         new_node.set_key_value(self._key[:pos], self._value[:pos])
         new_node.set_parent(parent)
+
+        new_node.set_agent_id(self.agent_id)
         new_node.set_steps_to_execution(self.steps_to_execution)
+
         new_node.ref_count = self.ref_count
 
         self.set_key_value(self._key[pos:], self._value[pos:])
@@ -174,13 +181,33 @@ class RadixCacheManager(BaseCacheManager):
             new_node = RadixTreeNode()
             new_node.set_key_value(input_ids[prefix_len:], indices[prefix_len:])
             new_node.set_parent(node)
-            new_node.set_steps_to_execution(kvflow_metadata.steps_to_execution)
+
+            # KVFlow logic
+            # ---------------------------------------------------------
+            agent_id = kvflow_metadata.agent_id
+            steps_to_execution_map = kvflow_metadata.steps_to_execution_map
+
+            new_node.set_agent_id(agent_id)
+            self.update_steps_to_execution(self.root_node, steps_to_execution_map)
+            # ---------------------------------------------------------
+
             self.evictable_size += new_node.length
 
             if self.display_tree:
                 print_tree(self.root_node)
                 print('------------------------------------------------')
         return prefix_len
+
+    def update_steps_to_execution(self, node: RadixTreeNode, steps_to_execution_map: dict) -> None:
+        """Function to recursively update steps-to-execution values of nodes in trees via map from agent_id to steps_to_execution."""
+        if not node.is_root():
+            agent_id = node.agent_id
+            steps_to_execution = steps_to_execution_map[agent_id]
+            node.set_steps_to_execution(steps_to_execution)
+
+        children = node.children.items()
+        for _, child_node in children:
+            self.update_steps_to_execution(child_node, steps_to_execution_map)
 
     def _walk(self, input_ids: torch.Tensor) -> Tuple[RadixTreeNode, int]:
         prefix_len = 0
