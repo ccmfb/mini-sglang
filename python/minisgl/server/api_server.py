@@ -19,6 +19,7 @@ from minisgl.message import (
     BatchFrontendMsg,
     TokenizeMsg,
     UserReply,
+    KVFlowMetadata
 )
 from minisgl.utils import ZmqAsyncPullQueue, ZmqAsyncPushQueue, init_logger
 from prompt_toolkit import PromptSession
@@ -54,6 +55,7 @@ class GenerateRequest(BaseModel):
     prompt: str
     max_tokens: int
     ignore_eos: bool = False
+    kvflow_metadata: KVFlowMetadata | None = None
 
 
 class Message(BaseModel):
@@ -224,6 +226,7 @@ async def generate(req: GenerateRequest):
                 ignore_eos=req.ignore_eos,
                 max_tokens=req.max_tokens,
             ),
+            kvflow_metadata=req.kvflow_metadata,
         )
     )
 

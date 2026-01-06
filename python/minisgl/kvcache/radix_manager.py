@@ -8,6 +8,7 @@ import random
 
 import torch
 
+from minisgl.core import KVFlowMetadata
 from .base import BaseCacheHandle, BaseCacheManager, SizeInfo
 
 
@@ -131,7 +132,9 @@ class RadixCacheManager(BaseCacheManager):
         value_list.reverse()
         return RadixCacheHandle(prefix_len, matched_node), torch.cat(value_list)
 
-    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor) -> int:
+    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor, kvflow_metadata: KVFlowMetadata | None = None) -> int:
+        print(f'Inserting prefix. KVFlow metadata: {kvflow_metadata}')
+
         node, prefix_len = self._walk(input_ids)
         assert prefix_len <= len(input_ids)
         if prefix_len < len(input_ids):

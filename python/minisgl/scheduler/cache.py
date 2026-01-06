@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torch
+from minisgl.core import KVFlowMetadata
 from minisgl.kvcache import BaseCacheHandle, create_cache_manager
 
 if TYPE_CHECKING:
@@ -56,8 +57,9 @@ class CacheManager:
         old_handle: BaseCacheHandle,
         input_ids: torch.Tensor,
         indices: torch.Tensor,
+        kvflow_metadata: KVFlowMetadata | None = None
     ) -> None:
-        in_cache_len = self.manager.insert_prefix(input_ids, indices)
+        in_cache_len = self.manager.insert_prefix(input_ids, indices, kvflow_metadata=kvflow_metadata)
         self._free(indices[old_handle.cached_len : in_cache_len])
         self.unlock(old_handle)
 

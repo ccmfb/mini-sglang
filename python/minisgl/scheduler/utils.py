@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, List
 import torch
 
 if TYPE_CHECKING:
-    from minisgl.core import SamplingParams
+    from minisgl.core import SamplingParams, KVFlowMetadata
 
     from .prefill import ChunkedReq
 
@@ -16,6 +16,7 @@ class PendingReq:
     uid: int
     input_ids: torch.Tensor
     sampling_params: SamplingParams
+    kvflow_metadata: KVFlowMetadata | None = None
     chunked_req: ChunkedReq | None = None
 
     @property

@@ -12,6 +12,12 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class KVFlowMetadata:
+    agent_id: int
+    steps_to_execution: int
+
+
+@dataclass
 class SamplingParams:
     temperature: float = 0.0
     top_k: int = -1
@@ -33,6 +39,7 @@ class Req:
     uid: int
     sampling_params: SamplingParams
     cache_handle: BaseCacheHandle
+    kvflow_metadata: KVFlowMetadata | None = None
 
     def __post_init__(self) -> None:
         assert self.input_ids.is_cpu

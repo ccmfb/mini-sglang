@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List
 
-from minisgl.core import SamplingParams
+from minisgl.core import SamplingParams, KVFlowMetadata
 
 from .utils import deserialize_type, serialize_type
 
@@ -30,12 +30,12 @@ class DetokenizeMsg(BaseTokenizerMsg):
     next_token: int
     finished: bool
 
-
 @dataclass
 class TokenizeMsg(BaseTokenizerMsg):
     uid: int
     text: str | List[Dict[str, str]]
     sampling_params: SamplingParams
+    kvflow_metadata: KVFlowMetadata | None = None
 
 
 @dataclass
