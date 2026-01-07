@@ -138,8 +138,6 @@ class RadixCacheManager(BaseCacheManager):
         self.evictable_size = 0
         self.protected_size = 0
 
-        self.display_tree = True
-
     def lock_handle(self, handle: BaseCacheHandle, unlock: bool = False) -> None:
         assert isinstance(handle, RadixCacheHandle)
         node = handle.node
@@ -173,8 +171,6 @@ class RadixCacheManager(BaseCacheManager):
         return RadixCacheHandle(prefix_len, matched_node), torch.cat(value_list)
 
     def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor, kvflow_metadata: KVFlowMetadata | None = None) -> int:
-        print(f'Inserting prefix. KVFlow metadata: {kvflow_metadata}')
-
         node, prefix_len = self._walk(input_ids)
         assert prefix_len <= len(input_ids)
         if prefix_len < len(input_ids):
@@ -193,9 +189,10 @@ class RadixCacheManager(BaseCacheManager):
 
             self.evictable_size += new_node.length
 
-            if self.display_tree:
+            if kvflow_metadata.show_tree:
                 print_tree(self.root_node)
                 print('------------------------------------------------')
+
         return prefix_len
 
     def update_steps_to_execution(self, node: RadixTreeNode, steps_to_execution_map: dict) -> None:

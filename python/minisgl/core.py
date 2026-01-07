@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 class KVFlowMetadata:
     agent_id: str
     steps_to_execution_map: dict[str, int]
+    show_tree: bool = False
 
 
 @dataclass
