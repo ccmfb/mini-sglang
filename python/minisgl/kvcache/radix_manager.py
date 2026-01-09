@@ -119,8 +119,10 @@ class RadixTreeNode:
         return new_node
 
     def __lt__(self, other: RadixTreeNode) -> bool:
-        return self.steps_to_execution > other.steps_to_execution
-        #return self.timestamp < other.timestamp
+        if self.agent_id:
+            return self.steps_to_execution > other.steps_to_execution
+        else:
+            return self.timestamp < other.timestamp
 
 
 @dataclass(frozen=True)
@@ -180,18 +182,19 @@ class RadixCacheManager(BaseCacheManager):
 
             # KVFlow logic
             # ---------------------------------------------------------
-            agent_id = kvflow_metadata.agent_id
-            steps_to_execution_map = kvflow_metadata.steps_to_execution_map
+            if kvflow_metadata: 
+                agent_id = kvflow_metadata.agent_id
+                steps_to_execution_map = kvflow_metadata.steps_to_execution_map
 
-            new_node.set_agent_id(agent_id)
-            self.update_steps_to_execution(self.root_node, steps_to_execution_map)
+                new_node.set_agent_id(agent_id)
+                self.update_steps_to_execution(self.root_node, steps_to_execution_map)
+
+                if kvflow_metadata.show_tree:
+                    print_tree(self.root_node)
+                    print('------------------------------------------------')
             # ---------------------------------------------------------
 
             self.evictable_size += new_node.length
-
-            if kvflow_metadata.show_tree:
-                print_tree(self.root_node)
-                print('------------------------------------------------')
 
         return prefix_len
 
@@ -250,7 +253,9 @@ class RadixCacheManager(BaseCacheManager):
                 leave_nodes
             ), f"Cannot evict enough cache, need {size}, only {evicted_size} evicted"
             node = heapq.heappop(leave_nodes)
-            print(f'Evicting node with steps-to-execution value of {node.steps_to_execution}')
+
+            if node.agent_id:
+                print(f'Evicting node with steps-to-execution value of {node.steps_to_execution}')
 
             assert node.ref_count == 0 and node.is_leaf() and not node.is_root()
             evicted_size += node.length
