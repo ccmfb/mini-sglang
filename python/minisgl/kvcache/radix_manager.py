@@ -13,7 +13,7 @@ from .base import BaseCacheHandle, BaseCacheManager, SizeInfo
 class RadixTreeNode:
     counter: int = 0
 
-    def __init__(self, eviction_policy, tic: int | None = None) -> None:
+    def __init__(self, eviction_policy: Literal['lru', 'ffu'], tic: int | None = None, workflow_metadata: dict | None = None) -> None:
         self.children: Dict[int, RadixTreeNode] = {}
         self._parent: RadixTreeNode | None = None
         self.ref_count: int = 0
@@ -26,6 +26,12 @@ class RadixTreeNode:
         self._key: torch.Tensor
         self._value: torch.Tensor
         self._length: int
+
+        self.workflow_metadata = workflow_metadata
+        if self.workflow_metadata is None: return
+
+        self.agent_id = workflow_metadata['agent_id']
+        self.ffu_map = workflow_metadata['ffu_map']
 
     def set_key_value(self, key: torch.Tensor, value: torch.Tensor) -> None:
         assert len(key) == len(value)
@@ -66,7 +72,7 @@ class RadixTreeNode:
         assert 0 < pos < self.length
         parent = self.parent
 
-        new_node = RadixTreeNode(self.eviction_policy, tic=self.timestamp)
+        new_node = RadixTreeNode(self.eviction_policy, workflow_metadata=self.workflow_metadata, tic=self.timestamp)
         new_node.set_key_value(self._key[:pos], self._value[:pos])
         new_node.set_parent(parent)
         new_node.ref_count = self.ref_count
@@ -133,11 +139,10 @@ class RadixCacheManager(BaseCacheManager):
         return RadixCacheHandle(prefix_len, matched_node), torch.cat(value_list)
 
     def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor, workflow_metadata: dict | None = None) -> int:
-        print('inserting prefix with workflow_data: ', workflow_metadata)
         node, prefix_len = self._walk(input_ids)
         assert prefix_len <= len(input_ids)
         if prefix_len < len(input_ids):
-            new_node = RadixTreeNode(eviction_policy=self.eviction_policy)
+            new_node = RadixTreeNode(eviction_policy=self.eviction_policy, workflow_metadata=workflow_metadata)
             new_node.set_key_value(input_ids[prefix_len:], indices[prefix_len:].clone())
             new_node.set_parent(node)
             self.evictable_size += new_node.length
