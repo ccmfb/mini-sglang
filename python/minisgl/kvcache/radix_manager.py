@@ -3,7 +3,7 @@ from __future__ import annotations
 import heapq
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Literal
 
 import torch
 
@@ -13,13 +13,14 @@ from .base import BaseCacheHandle, BaseCacheManager, SizeInfo
 class RadixTreeNode:
     counter: int = 0
 
-    def __init__(self, tic: int | None = None) -> None:
+    def __init__(self, eviction_policy, tic: int | None = None) -> None:
         self.children: Dict[int, RadixTreeNode] = {}
         self._parent: RadixTreeNode | None = None
         self.ref_count: int = 0
         self.uuid = RadixTreeNode.counter
         RadixTreeNode.counter += 1
         self.timestamp = tic or time.monotonic_ns()
+        self.eviction_policy = eviction_policy
 
         # these fields should be updated later
         self._key: torch.Tensor
@@ -65,7 +66,7 @@ class RadixTreeNode:
         assert 0 < pos < self.length
         parent = self.parent
 
-        new_node = RadixTreeNode(self.timestamp)
+        new_node = RadixTreeNode(self.eviction_policy, tic=self.timestamp)
         new_node.set_key_value(self._key[:pos], self._value[:pos])
         new_node.set_parent(parent)
         new_node.ref_count = self.ref_count
@@ -76,6 +77,8 @@ class RadixTreeNode:
         return new_node
 
     def __lt__(self, other: RadixTreeNode) -> bool:
+        #if self.eviction_policy == 'ffu': pass
+        
         return self.timestamp < other.timestamp
 
 
@@ -85,14 +88,17 @@ class RadixCacheHandle(BaseCacheHandle):
 
 
 class RadixCacheManager(BaseCacheManager):
-    def __init__(self, device: torch.device):
+    def __init__(self, device: torch.device, eviction_policy: Literal['lru', 'ffu'] = 'lru'):
         self.device = device
         self.empty_tensor = torch.empty(0, dtype=torch.int32, device=device)
         super().__init__()
-        self.root_node = RadixTreeNode()
+        self.root_node = RadixTreeNode(eviction_policy=eviction_policy)
         self.root_node.ref_count = 1  # root is always protected
         self.evictable_size = 0
         self.protected_size = 0
+        self.eviction_policy = eviction_policy
+
+        print(f'Initialised Radix Cache with {self.eviction_policy} Eviction Policy..')
 
     def lock_handle(self, handle: BaseCacheHandle, unlock: bool = False) -> None:
         assert isinstance(handle, RadixCacheHandle)
@@ -126,11 +132,12 @@ class RadixCacheManager(BaseCacheManager):
         value_list.reverse()
         return RadixCacheHandle(prefix_len, matched_node), torch.cat(value_list)
 
-    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor) -> int:
+    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor, workflow_metadata: dict | None = None) -> int:
+        print('inserting prefix with workflow_data: ', workflow_metadata)
         node, prefix_len = self._walk(input_ids)
         assert prefix_len <= len(input_ids)
         if prefix_len < len(input_ids):
-            new_node = RadixTreeNode()
+            new_node = RadixTreeNode(eviction_policy=self.eviction_policy)
             new_node.set_key_value(input_ids[prefix_len:], indices[prefix_len:].clone())
             new_node.set_parent(node)
             self.evictable_size += new_node.length

@@ -56,8 +56,9 @@ class CacheManager:
         old_handle: BaseCacheHandle,
         input_ids: torch.Tensor,
         indices: torch.Tensor,
+        workflow_metadata: dict | None = None
     ) -> None:
-        in_cache_len = self.manager.insert_prefix(input_ids, indices)
+        in_cache_len = self.manager.insert_prefix(input_ids, indices, workflow_metadata=workflow_metadata)
         self._free(indices[old_handle.cached_len : in_cache_len])
         self.unlock(old_handle)
 

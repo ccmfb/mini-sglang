@@ -33,6 +33,7 @@ class Req:
     uid: int
     sampling_params: SamplingParams
     cache_handle: BaseCacheHandle
+    workflow_metadata: dict | None = None
 
     def __post_init__(self) -> None:
         assert self.input_ids.is_cpu

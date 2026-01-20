@@ -54,6 +54,7 @@ class GenerateRequest(BaseModel):
     prompt: str
     max_tokens: int
     ignore_eos: bool = False
+    workflow_metadata: dict | None = None
 
 
 class Message(BaseModel):
@@ -222,8 +223,9 @@ async def generate(req: GenerateRequest):
             text=req.prompt,
             sampling_params=SamplingParams(
                 ignore_eos=req.ignore_eos,
-                max_tokens=req.max_tokens,
+                max_tokens=req.max_tokens
             ),
+            workflow_metadata=req.workflow_metadata
         )
     )
 
@@ -264,6 +266,7 @@ async def v1_completions(req: OpenAICompletionRequest):
                 top_k=req.top_k,
                 top_p=req.top_p,
             ),
+            workflow_metadata=req.workflow_metadata
         )
     )
 
@@ -301,6 +304,7 @@ async def shell_completion(req: OpenAICompletionRequest):
                 top_k=req.top_k,
                 top_p=req.top_p,
             ),
+            workflow_metadata=req.workflow_metadata
         )
     )
 

@@ -89,6 +89,7 @@ def tokenize_worker(
                             uid=msg.uid,
                             input_ids=t,
                             sampling_params=msg.sampling_params,
+                            workflow_metadata=msg.workflow_metadata
                         )
                         for msg, t in zip(tokenize_msg, tensors, strict=True)
                     ]
