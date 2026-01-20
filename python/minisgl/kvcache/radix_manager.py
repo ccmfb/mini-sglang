@@ -87,9 +87,10 @@ class RadixTreeNode:
         return new_node
 
     def __lt__(self, other: RadixTreeNode) -> bool:
-        #if self.eviction_policy == 'ffu': pass
-        
-        return self.timestamp < other.timestamp
+        if self.eviction_policy == 'ffu': 
+            return self.ffu_value > other.ffu_value
+        else:
+            return self.timestamp < other.timestamp
 
 
 @dataclass(frozen=True)
@@ -221,6 +222,9 @@ class RadixCacheManager(BaseCacheManager):
             ), f"Cannot evict enough cache, need {size}, only {evicted_size} evicted"
             node = heapq.heappop(leave_nodes)
             assert node.ref_count == 0 and node.is_leaf() and not node.is_root()
+
+            print(f'Evicting node with agent_id: {node.agent_id}, ffu_value: {node.ffu_value}')
+
             evicted_size += node.length
             evicted_indices.append(node.value)
             self.evictable_size -= node.length
