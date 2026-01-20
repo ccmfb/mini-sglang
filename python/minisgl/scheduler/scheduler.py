@@ -107,6 +107,7 @@ class Scheduler(SchedulerIOMixin):
                 req.cache_handle,
                 req.input_ids[: req.cached_len],
                 self.page_table[req.table_idx, : req.cached_len],
+                workflow_metadata=req.workflow_metadata
             )
 
         # keep only ongoing reqs in the finished set

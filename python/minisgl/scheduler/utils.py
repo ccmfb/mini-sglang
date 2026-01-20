@@ -16,6 +16,7 @@ class PendingReq:
     uid: int
     input_ids: torch.Tensor
     sampling_params: SamplingParams
+    workflow_metadata: dict | None = None
     chunked_req: ChunkedReq | None = None
 
     @property

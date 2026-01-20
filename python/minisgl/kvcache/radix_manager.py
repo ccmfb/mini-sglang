@@ -3,7 +3,7 @@ from __future__ import annotations
 import heapq
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Literal
 
 import torch
 
@@ -13,18 +13,26 @@ from .base import BaseCacheHandle, BaseCacheManager, SizeInfo
 class RadixTreeNode:
     counter: int = 0
 
-    def __init__(self, tic: int | None = None) -> None:
+    def __init__(self, eviction_policy: Literal['lru', 'ffu'], tic: int | None = None, workflow_metadata: dict | None = None) -> None:
         self.children: Dict[int, RadixTreeNode] = {}
         self._parent: RadixTreeNode | None = None
         self.ref_count: int = 0
         self.uuid = RadixTreeNode.counter
         RadixTreeNode.counter += 1
         self.timestamp = tic or time.monotonic_ns()
+        self.eviction_policy = eviction_policy
 
         # these fields should be updated later
         self._key: torch.Tensor
         self._value: torch.Tensor
         self._length: int
+
+        self.workflow_metadata = workflow_metadata
+        if self.workflow_metadata is None: return
+
+        self.agent_id = workflow_metadata['agent_id']
+        self.ffu_map = workflow_metadata['ffu_map']
+        self.ffu_value = self.ffu_map[self.agent_id]
 
     def set_key_value(self, key: torch.Tensor, value: torch.Tensor) -> None:
         assert len(key) == len(value)
@@ -35,6 +43,9 @@ class RadixTreeNode:
     def set_parent(self, parent: RadixTreeNode) -> None:
         self._parent = parent
         parent.children[int(self._key[0].item())] = self
+
+    def set_ffu_value(self, ffu_value: int) -> None:
+        self.ffu_value = ffu_value
 
     @property
     def length(self) -> int:
@@ -65,7 +76,7 @@ class RadixTreeNode:
         assert 0 < pos < self.length
         parent = self.parent
 
-        new_node = RadixTreeNode(self.timestamp)
+        new_node = RadixTreeNode(self.eviction_policy, workflow_metadata=self.workflow_metadata, tic=self.timestamp)
         new_node.set_key_value(self._key[:pos], self._value[:pos])
         new_node.set_parent(parent)
         new_node.ref_count = self.ref_count
@@ -76,7 +87,10 @@ class RadixTreeNode:
         return new_node
 
     def __lt__(self, other: RadixTreeNode) -> bool:
-        return self.timestamp < other.timestamp
+        if self.eviction_policy == 'ffu': 
+            return self.ffu_value > other.ffu_value
+        else:
+            return self.timestamp < other.timestamp
 
 
 @dataclass(frozen=True)
@@ -85,14 +99,18 @@ class RadixCacheHandle(BaseCacheHandle):
 
 
 class RadixCacheManager(BaseCacheManager):
-    def __init__(self, device: torch.device):
+    def __init__(self, device: torch.device, eviction_policy: Literal['lru', 'ffu'] = 'lru', print_ascii_tree: bool = True):
         self.device = device
         self.empty_tensor = torch.empty(0, dtype=torch.int32, device=device)
         super().__init__()
-        self.root_node = RadixTreeNode()
+        self.root_node = RadixTreeNode(eviction_policy=eviction_policy)
         self.root_node.ref_count = 1  # root is always protected
         self.evictable_size = 0
         self.protected_size = 0
+        self.eviction_policy = eviction_policy
+        self.print_ascii_tree = print_ascii_tree
+
+        print(f'Initialised Radix Cache with {self.eviction_policy} Eviction Policy (print_ascii_tree={print_ascii_tree})..')
 
     def lock_handle(self, handle: BaseCacheHandle, unlock: bool = False) -> None:
         assert isinstance(handle, RadixCacheHandle)
@@ -113,8 +131,8 @@ class RadixCacheManager(BaseCacheManager):
                 node.ref_count += 1
                 node = node.parent
 
-    def match_prefix(self, input_ids: torch.Tensor) -> Tuple[RadixCacheHandle, torch.Tensor]:
-        node, prefix_len = self._walk(input_ids)
+    def match_prefix(self, input_ids: torch.Tensor, workflow_metadata: dict | None = None) -> Tuple[RadixCacheHandle, torch.Tensor]:
+        node, prefix_len = self._walk(input_ids, workflow_metadata=workflow_metadata)
         if prefix_len == 0:
             assert node.is_root() and node is self.root_node and prefix_len == 0
             return RadixCacheHandle(prefix_len, node), self.empty_tensor
@@ -126,17 +144,25 @@ class RadixCacheManager(BaseCacheManager):
         value_list.reverse()
         return RadixCacheHandle(prefix_len, matched_node), torch.cat(value_list)
 
-    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor) -> int:
-        node, prefix_len = self._walk(input_ids)
+    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor, workflow_metadata: dict | None = None) -> int:
+        node, prefix_len = self._walk(input_ids, workflow_metadata)
         assert prefix_len <= len(input_ids)
         if prefix_len < len(input_ids):
-            new_node = RadixTreeNode()
+            new_node = RadixTreeNode(eviction_policy=self.eviction_policy, workflow_metadata=workflow_metadata)
             new_node.set_key_value(input_ids[prefix_len:], indices[prefix_len:].clone())
             new_node.set_parent(node)
             self.evictable_size += new_node.length
         return prefix_len
 
-    def _walk(self, input_ids: torch.Tensor) -> Tuple[RadixTreeNode, int]:
+    def _walk(self, input_ids: torch.Tensor, workflow_metadata: dict | None = None) -> Tuple[RadixTreeNode, int]:
+        if self.print_ascii_tree:
+            print()
+            print_tree(self.root_node)
+            print('-'*80)
+            print()
+
+        self.update_ffu(self.root_node, workflow_metadata)
+
         prefix_len = 0
         indice_len = len(input_ids)
         node = self.root_node
@@ -163,6 +189,21 @@ class RadixCacheManager(BaseCacheManager):
 
         return node, prefix_len
 
+    def update_ffu(self, node: RadixTreeNode, workflow_metadata: dict | None) -> None:
+        """Function to recursively update ffu-values of nodes in trees via map from agent_id to ffu-value."""
+        if workflow_metadata is None: return
+        
+        if not node.is_root():
+            curr_agent_id = node.agent_id
+            ffu_map = workflow_metadata['ffu_map']
+            ffu_value = ffu_map[curr_agent_id]
+
+            node.set_ffu_value(ffu_value)
+
+        children = node.children.items()
+        for _, child_node in children:
+            self.update_ffu(child_node, workflow_metadata)
+
     def evict(self, size: int) -> torch.Tensor:
         if size == 0:
             return self.empty_tensor
@@ -181,6 +222,9 @@ class RadixCacheManager(BaseCacheManager):
             ), f"Cannot evict enough cache, need {size}, only {evicted_size} evicted"
             node = heapq.heappop(leave_nodes)
             assert node.ref_count == 0 and node.is_leaf() and not node.is_root()
+
+            print(f'Evicting node with agent_id: {node.agent_id}, ffu_value: {node.ffu_value}')
+
             evicted_size += node.length
             evicted_indices.append(node.value)
             self.evictable_size -= node.length
@@ -219,3 +263,30 @@ class RadixCacheManager(BaseCacheManager):
 
     def check_integrity(self) -> None:
         pass
+
+
+def print_tree(node, prefix="", is_last=True):
+    """
+    Recursively prints the Radix Tree structure in ASCII format.
+    """
+    connector = "└── " if is_last else "├── "
+    
+    if node.is_root():
+        display = "[ROOT]"
+    else:
+        key = node._key.tolist()
+        # Truncate long keys for cleaner output
+        key_str = str(key) if len(key) <= 5 else f"{key[:2]}...{key[-1]}"
+        #status = "LOCKED" if node.ref_count > 0 else "Evictable"
+        display = f"Key: {key_str} | agent_id: {node.agent_id}, ffu_value: {node.ffu_value} "
+
+    print(f"{prefix}{connector}{display}")
+
+    # 3. Prepare prefix for the next level
+    child_prefix = prefix + ("    " if is_last else "│   ")
+    
+    sorted_children = sorted(node.children.items())
+    count = len(sorted_children)
+    
+    for i, (token_id, child_node) in enumerate(sorted_children):
+        print_tree(child_node, child_prefix, is_last=(i == count - 1))

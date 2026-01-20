@@ -24,7 +24,7 @@ class CacheManager:
     def match_req(self, req: PendingReq):
         input_len = req.input_len
         assert input_len > 0, "Input length must be greater than 0."
-        return self.manager.match_prefix(req.input_ids[: input_len - 1])
+        return self.manager.match_prefix(req.input_ids[: input_len - 1], workflow_metadata=req.workflow_metadata)
 
     @property
     def available_size(self) -> int:
@@ -56,8 +56,9 @@ class CacheManager:
         old_handle: BaseCacheHandle,
         input_ids: torch.Tensor,
         indices: torch.Tensor,
+        workflow_metadata: dict | None = None
     ) -> None:
-        in_cache_len = self.manager.insert_prefix(input_ids, indices)
+        in_cache_len = self.manager.insert_prefix(input_ids, indices, workflow_metadata=workflow_metadata)
         self._free(indices[old_handle.cached_len : in_cache_len])
         self.unlock(old_handle)
 

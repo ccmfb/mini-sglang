@@ -58,6 +58,13 @@ def create_radix_cache_manager(device: torch.device):
     return RadixCacheManager(device=device)
 
 
+@SUPPORTED_CACHE_MANAGER.register("radix-ffu")
+def create_radix_cache_manager_ffu(device: torch.device):
+    from .radix_manager import RadixCacheManager
+
+    return RadixCacheManager(device=device, eviction_policy='ffu')
+
+
 def create_cache_manager(device: torch.device, type: str) -> BaseCacheManager:
     return SUPPORTED_CACHE_MANAGER[type](device)
 
