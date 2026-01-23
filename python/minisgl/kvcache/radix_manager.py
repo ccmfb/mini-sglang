@@ -7,13 +7,14 @@ from typing import Dict, List, Tuple, Literal
 
 import torch
 
+from minisgl.core import WorkflowMeta
 from .base import BaseCacheHandle, BaseCacheManager, SizeInfo
 
 
 class RadixTreeNode:
     counter: int = 0
 
-    def __init__(self, eviction_policy: Literal['lru', 'ffu'], tic: int | None = None, workflow_metadata: dict | None = None) -> None:
+    def __init__(self, eviction_policy: Literal['lru', 'ffu'], tic: int | None = None, workflow_metadata: WorkflowMeta = None) -> None:
         self.children: Dict[int, RadixTreeNode] = {}
         self._parent: RadixTreeNode | None = None
         self.ref_count: int = 0
@@ -27,12 +28,9 @@ class RadixTreeNode:
         self._value: torch.Tensor
         self._length: int
 
-        self.workflow_metadata = workflow_metadata
-        if self.workflow_metadata is None: return
-
-        self.agent_id = workflow_metadata['agent_id']
-        self.ffu_map = workflow_metadata['ffu_map']
-        self.ffu_value = self.ffu_map[self.agent_id]
+        # Workflow metadata: only store what the node actually needs
+        self.agent_id: str | None = workflow_metadata.get('agent_id') if workflow_metadata else None
+        self.ffu_value: int = 0
 
     def set_key_value(self, key: torch.Tensor, value: torch.Tensor) -> None:
         assert len(key) == len(value)
@@ -131,7 +129,7 @@ class RadixCacheManager(BaseCacheManager):
                 node.ref_count += 1
                 node = node.parent
 
-    def match_prefix(self, input_ids: torch.Tensor, workflow_metadata: dict | None = None) -> Tuple[RadixCacheHandle, torch.Tensor]:
+    def match_prefix(self, input_ids: torch.Tensor, workflow_metadata: WorkflowMeta = None) -> Tuple[RadixCacheHandle, torch.Tensor]:
         node, prefix_len = self._walk(input_ids, workflow_metadata=workflow_metadata)
         if prefix_len == 0:
             assert node.is_root() and node is self.root_node and prefix_len == 0
@@ -144,7 +142,7 @@ class RadixCacheManager(BaseCacheManager):
         value_list.reverse()
         return RadixCacheHandle(prefix_len, matched_node), torch.cat(value_list)
 
-    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor, workflow_metadata: dict | None = None) -> int:
+    def insert_prefix(self, input_ids: torch.Tensor, indices: torch.Tensor, workflow_metadata: WorkflowMeta = None) -> int:
         node, prefix_len = self._walk(input_ids, workflow_metadata)
         assert prefix_len <= len(input_ids)
         if prefix_len < len(input_ids):
@@ -154,7 +152,7 @@ class RadixCacheManager(BaseCacheManager):
             self.evictable_size += new_node.length
         return prefix_len
 
-    def _walk(self, input_ids: torch.Tensor, workflow_metadata: dict | None = None) -> Tuple[RadixTreeNode, int]:
+    def _walk(self, input_ids: torch.Tensor, workflow_metadata: WorkflowMeta = None) -> Tuple[RadixTreeNode, int]:
         if self.print_ascii_tree:
             print()
             print_tree(self.root_node)
@@ -189,19 +187,17 @@ class RadixCacheManager(BaseCacheManager):
 
         return node, prefix_len
 
-    def update_ffu(self, node: RadixTreeNode, workflow_metadata: dict | None) -> None:
-        """Function to recursively update ffu-values of nodes in trees via map from agent_id to ffu-value."""
-        if workflow_metadata is None: return
-        
-        if not node.is_root():
-            curr_agent_id = node.agent_id
-            ffu_map = workflow_metadata['ffu_map']
-            ffu_value = ffu_map[curr_agent_id]
+    def update_ffu(self, node: RadixTreeNode, workflow_metadata: WorkflowMeta) -> None:
+        """Recursively update ffu-values of nodes in tree from the ffu_map."""
+        if not workflow_metadata:
+            return
 
-            node.set_ffu_value(ffu_value)
+        ffu_map = workflow_metadata.get('ffu_map', {})
 
-        children = node.children.items()
-        for _, child_node in children:
+        if not node.is_root() and node.agent_id in ffu_map:
+            node.set_ffu_value(ffu_map[node.agent_id])
+
+        for child_node in node.children.values():
             self.update_ffu(child_node, workflow_metadata)
 
     def evict(self, size: int) -> torch.Tensor:

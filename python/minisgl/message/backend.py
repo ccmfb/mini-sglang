@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 import torch
-from minisgl.core import SamplingParams
+from minisgl.core import SamplingParams, WorkflowMeta
 
 from .utils import deserialize_type, serialize_type
 
@@ -34,4 +34,4 @@ class UserMsg(BaseBackendMsg):
     uid: int
     input_ids: torch.Tensor  # CPU 1D int32 tensor
     sampling_params: SamplingParams
-    workflow_metadata: dict | None = None
+    workflow_metadata: WorkflowMeta = None
