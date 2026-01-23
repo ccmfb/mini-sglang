@@ -2,13 +2,23 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Literal
+from typing import TYPE_CHECKING, Any, Dict, List, Literal
 
 import torch
 
 if TYPE_CHECKING:
     from minisgl.attention import BaseAttnBackend, BaseAttnMetadata
     from minisgl.kvcache import BaseCacheHandle
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Workflow Metadata
+# ──────────────────────────────────────────────────────────────────────────────
+
+WorkflowMeta = Dict[str, Any] | None
+"""Workflow metadata passed through the request pipeline. Currently supports:
+- agent_id: str - identifier for the agent making the request
+- ffu_map: Dict[str, int] - mapping of agent_id to ffu (forward-frequency-usage) values
+"""
 
 
 @dataclass
@@ -33,7 +43,7 @@ class Req:
     uid: int
     sampling_params: SamplingParams
     cache_handle: BaseCacheHandle
-    workflow_metadata: dict | None = None
+    workflow_metadata: WorkflowMeta = None
 
     def __post_init__(self) -> None:
         assert self.input_ids.is_cpu

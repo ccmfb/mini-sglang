@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, List
 
 import torch
 
+from minisgl.core import WorkflowMeta
+
 if TYPE_CHECKING:
     from minisgl.core import SamplingParams
 
@@ -16,7 +18,7 @@ class PendingReq:
     uid: int
     input_ids: torch.Tensor
     sampling_params: SamplingParams
-    workflow_metadata: dict | None = None
+    workflow_metadata: WorkflowMeta = None
     chunked_req: ChunkedReq | None = None
 
     @property

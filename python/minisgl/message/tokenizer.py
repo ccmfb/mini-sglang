@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List
 
-from minisgl.core import SamplingParams
+from minisgl.core import SamplingParams, WorkflowMeta
 
 from .utils import deserialize_type, serialize_type
 
@@ -36,7 +36,7 @@ class TokenizeMsg(BaseTokenizerMsg):
     uid: int
     text: str | List[Dict[str, str]]
     sampling_params: SamplingParams
-    workflow_metadata: dict | None = None
+    workflow_metadata: WorkflowMeta = None
 
 
 @dataclass
